@@ -1,194 +1,90 @@
-# AmishOrder — Auth & User Management
+# AmishOrder - Auth, Admin Approval, and Inventory
 
-A full-stack web application with user signup, email verification, admin-gated approval, role-based access, and a welcome dashboard.
+![Node](https://img.shields.io/badge/Node-18+-green)
+![React](https://img.shields.io/badge/React-18-blue)
+![MongoDB](https://img.shields.io/badge/Database-MongoDB-green)
+![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-**Stack:** React 18 · Node.js · TypeScript · MongoDB · Tailwind CSS · shadcn/ui
+## Overview
 
----
+AmishOrder is a full-stack TypeScript monorepo with:
 
-## Quick Start
+- Email verification before login access
+- Admin approval workflow for new users
+- Role-based access controls
+- Admin inventory management with time-based pricing
 
-### Prerequisites
-- Node.js 18+
-- MongoDB running locally (`mongodb://localhost:27017`)
-- A Gmail account with an [App Password](https://myaccount.google.com/apppasswords) (2-Step Verification must be enabled)
+## Tech Stack
 
-### 1. Configure environment
-```bash
-cd server
-copy .env.example .env   # Windows
-# cp .env.example .env   # Mac/Linux
-```
-Fill in `server/.env` — see [Environment Variables](#environment-variables) below.
+- Frontend: React + Vite + TypeScript + Tailwind + shadcn/ui
+- Backend: Express + TypeScript
+- Database: MongoDB with Mongoose
+- Auth: JWT in httpOnly cookie
 
-### 2. Create the first admin account
-```bash
-cd server
-npm install
-npm run seed:admin
-```
-This is idempotent — safe to run multiple times.
+## Architecture Decision Records (ADR)
 
-### 3. Start the servers
-```bash
-# Terminal 1 — API (port 3001)
-npm run dev --prefix server
+- [001 - Monorepo Structure](docs/adr/001-monorepo-structure.md)
+- [002 - Auth JWT HttpOnly Cookie](docs/adr/002-auth-jwt-httponly-cookie.md)
+- [003 - MongoDB Mongoose](docs/adr/003-mongodb-mongoose.md)
+- [004 - Feature-Based Client](docs/adr/004-feature-based-client.md)
+- [005 - Admin Approval Flow](docs/adr/005-admin-approval-flow.md)
+- [006 - Email Verification Before Admin Review](docs/adr/006-email-verification.md)
+- [007 - Inventory Lifecycle and Pricing Deletion Policy](docs/adr/007-inventory-lifecycle-and-pricing-deletion.md)
 
-# Terminal 2 — React client (port 5173)
-npm run dev --prefix client
-```
+To add a new ADR, create the next numbered file in `docs/adr/` using the same format (`Date`, `Status`, `Context`, `Decision`, `Rationale`, `Implementation`, `Consequences`) and add its link to this list.
 
-Open **http://localhost:5173**
+## Inventory Management (Admin)
 
----
+Inventory setup and management is available only to admin users.
 
-## Project Structure
+### Current capabilities
 
-```
-AmishOrder/
-├── client/                        # React 18 + Vite + TypeScript
-│   └── src/
-│       ├── components/common/     # Layout, Navbar, ProtectedRoute
-│       ├── components/ui/         # shadcn/ui primitives (auto-generated)
-│       ├── features/
-│       │   ├── auth/              # Login/Signup forms, hooks, API calls
-│       │   └── admin/             # User table, approval hooks, API calls
-│       ├── pages/                 # Thin route-level page components
-│       ├── providers/             # AuthProvider (React context)
-│       ├── router/                # React Router v6 route definitions
-│       ├── lib/                   # Axios instance
-│       └── types/                 # Shared TypeScript interfaces
-│
-└── server/
-    └── src/
-        ├── api/
-        │   ├── controllers/       # auth.controller.ts, admin.controller.ts
-        │   ├── middlewares/       # authenticate.ts, authorize.ts
-        │   ├── routes/            # auth.routes.ts, admin.routes.ts
-        │   └── validators/        # Zod schemas for request bodies
-        ├── config/                # env.ts (validated), db.ts (MongoDB)
-        ├── models/                # user.model.ts (Mongoose)
-        ├── services/              # auth.service.ts, admin.service.ts, email.service.ts
-        ├── scripts/               # seed-admin.ts
-        ├── utils/                 # token.utils.ts
-        ├── app.ts                 # Express app (no HTTP listener — testable)
-        └── server.ts              # Entry point (starts HTTP listener)
-```
+- Create inventory items with name and optional description
+- Add future-effective price records for an item
+- View pricing history
+- Soft delete an inventory item
+- Hard delete a pricing record from history
 
----
+### Pricing rules
 
-## User Flow
+- Every price update must include an effective `startDate`
+- Effective date must be in the future
+- If a new future price overlaps a previous active range, the previous record is automatically closed (`endDate = newStart - 1ms`)
+- Pricing history is retained unless a specific pricing record is hard-deleted by admin
 
-```
-Signup → Verification email sent
-    ↓
-User clicks link in email → Server validates token → status: pending_approval
-    ↓
-Admin logs in → /admin dashboard → Approves user + assigns access (edit | view)
-    ↓
-User logs in → /welcome (JWT issued as httpOnly cookie)
-    ↓
-Logout → cookie cleared → /login
-```
+### Deletion behavior
 
-### User statuses
-| Status | Meaning |
-|---|---|
-| `pending_email` | Signed up, email not yet verified |
-| `pending_approval` | Email verified, awaiting admin approval |
-| `active` | Approved — can log in |
-| `rejected` | Denied by admin |
+- Inventory item deletion is soft delete:
+  - `isDeleted = true`
+  - `deletedAt` is set
+  - Item is excluded from normal inventory lists
+- Pricing record deletion is hard delete:
+  - Removes the specific pricing subdocument from the inventory item
 
-### Roles & access
-| Role | Access | Can do |
-|---|---|---|
-| `admin` | `edit` | Approve/reject users, access `/admin` |
-| `user` | `edit` | Full feature access (future phases) |
-| `user` | `view` | Read-only feature access (future phases) |
+### Data model notes
 
----
+- `SKU` is no longer part of the inventory model or UI
+- Legacy inventory records without `isDeleted` are treated as active (`isDeleted != true`)
 
-## API Endpoints
+## Admin API (Inventory)
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| POST | `/api/auth/signup` | Public | Create account, send verification email |
-| GET | `/api/auth/verify-email/:token` | Public | Verify token, redirect to client |
-| POST | `/api/auth/login` | Public | Login, issue JWT cookie |
-| POST | `/api/auth/logout` | Public | Clear JWT cookie |
-| GET | `/api/auth/me` | JWT | Return current user |
-| GET | `/api/admin/users` | Admin | List all non-admin users |
-| PUT | `/api/admin/users/:id/approve` | Admin | Set active + assign access |
-| PUT | `/api/admin/users/:id/reject` | Admin | Set rejected |
+All routes below are protected by `authenticate` + `authorizeAdmin` middleware.
 
----
+- `GET /api/admin/inventory` - list non-deleted inventory items
+- `POST /api/admin/inventory` - create inventory item
+- `GET /api/admin/inventory/:id` - get a single non-deleted inventory item
+- `POST /api/admin/inventory/:id/pricing` - add pricing record (future start date required)
+- `DELETE /api/admin/inventory/:id` - soft delete inventory item
+- `DELETE /api/admin/inventory/:id/pricing/:pricingId` - hard delete pricing record
 
-## Environment Variables
+## Recent updates (2026-06-05)
 
-All variables live in `server/.env` (never committed). Copy from `server/.env.example`.
+- Added React Query provider at app root to support inventory queries/mutations
+- Inventory tab is now default on admin dashboard
+- Admin tab order updated to `Inventory`, then `Users`
+- Implemented future-effective-date rule for price changes
+- Implemented soft delete for inventory items
+- Implemented hard delete for pricing records
+- Removed `SKU` from server and client
 
-| Variable | Required | Description |
-|---|---|---|
-| `MONGODB_URI` | Yes | MongoDB connection string |
-| `JWT_SECRET` | Yes | Min 32 chars. Generate: `node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"` |
-| `JWT_EXPIRES_IN` | No | Default `7d` |
-| `CLIENT_URL` | Yes | React app URL (e.g. `http://localhost:5173`) |
-| `SERVER_URL` | Yes | API server URL (e.g. `http://localhost:3001`) |
-| `SMTP_HOST` | Yes | e.g. `smtp.gmail.com` |
-| `SMTP_PORT` | No | Default `587` |
-| `SMTP_USER` | Yes | Gmail address |
-| `SMTP_PASS` | Yes | Gmail **App Password** (not your login password) |
-| `SMTP_FROM` | Yes | e.g. `"App <you@gmail.com>"` |
-| `ADMIN_EMAIL` | Yes | First admin email (seed script) |
-| `ADMIN_PASSWORD` | Yes | First admin password (min 8 chars) |
-| `ADMIN_FIRST_NAME` | Yes | First admin first name |
-| `ADMIN_LAST_NAME` | Yes | First admin last name |
-
-> **Gmail:** Must use an [App Password](https://myaccount.google.com/apppasswords). Regular Gmail passwords are blocked for SMTP since 2022.
-
----
-
-## Scripts
-
-| Directory | Command | Description |
-|---|---|---|
-| `server/` | `npm run dev` | Start API with hot-reload |
-| `server/` | `npm run build` | Compile TypeScript to `dist/` |
-| `server/` | `npm run start` | Run compiled production build |
-| `server/` | `npm run seed:admin` | Create first admin (idempotent) |
-| `client/` | `npm run dev` | Start Vite dev server |
-| `client/` | `npm run build` | Build for production |
-| `client/` | `npm run preview` | Preview production build locally |
-
----
-
-## Architecture Decisions
-
-See [`docs/adr/`](docs/adr/) for the full rationale behind key decisions.
-
-| # | Decision | Summary |
-|---|---|---|
-| [001](docs/adr/001-monorepo-structure.md) | Monorepo structure | `client/` + `server/` in one repo |
-| [002](docs/adr/002-auth-jwt-httponly-cookie.md) | JWT in httpOnly cookie | XSS-safe auth strategy |
-| [003](docs/adr/003-mongodb-mongoose.md) | MongoDB + Mongoose | Local dev → Azure Cosmos DB migration path |
-| [004](docs/adr/004-feature-based-client.md) | Feature-based client structure | Scalable React architecture |
-| [005](docs/adr/005-admin-approval-flow.md) | Admin approval flow | Manual user activation by admin |
-| [006](docs/adr/006-email-verification.md) | Email verification | Confirm identity before admin review |
-
----
-
-## Phase Roadmap
-
-- **AmishOrder v1** ✅ — Signup, login, email verification, admin approval, welcome page, logout
-- **Phase 2** — TBD (password reset, profile editing, feature pages)
-- **Phase 3** — Azure deployment (App Service / Container Apps + Cosmos DB)
-
----
-
-## Azure Migration (Phase 3)
-
-The codebase is designed for zero-code Azure migration:
-- Change `MONGODB_URI` to a Cosmos DB connection string — Mongoose models are unchanged
-- Cosmos DB supports the MongoDB API natively
-- Deploy server to Azure App Service or Container Apps
-- Deploy client build (`dist/`) to Azure Static Web Apps
