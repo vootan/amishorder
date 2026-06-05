@@ -6,9 +6,9 @@ export default function SignupPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="h-12 w-12 rounded-xl bg-indigo-600 flex items-center justify-center mx-auto mb-4">
-            <span className="text-white font-bold text-xl">P1</span>
+            <span className="text-white font-bold text-xl">AO</span>
           </div>
-          <p className="text-gray-500 text-sm">Phase 1 Application</p>
+          <p className="text-gray-500 text-sm">Amish Orders</p>
         </div>
         <SignupForm />
       </div>
